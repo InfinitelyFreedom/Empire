@@ -41,6 +41,8 @@ Includes:
 from __future__ import division
 from __future__ import print_function
 
+import json
+
 from future import standard_library
 
 standard_library.install_aliases()
@@ -66,11 +68,8 @@ import fnmatch
 import urllib.request, urllib.parse, urllib.error, urllib.request, urllib.error, urllib.parse
 import hashlib
 import datetime
-import uuid
-import ipaddress
-import simplejson as json
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 ###############################################################
 #
@@ -272,6 +271,19 @@ def strip_powershell_comments(data):
 
     return strippedCode
 
+
+def keyword_obfuscation(data):
+    conn = sqlite3.connect('./data/empire.db', check_same_thread=False)
+    conn.isolation_level = None
+    conn.row_factory = None
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM functions")
+    for replacement in cur.fetchall():
+        data = data.replace(replacement[0], replacement[1])
+    cur.close()
+    conn.close()
+
+    return data
 
 ####################################################################################
 #
@@ -634,10 +646,12 @@ def get_listener_options(listenerName):
 
 def get_datetime():
     """
-    Return the current date/time
+    Return the local current date/time
     """
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+def getutcnow():
+    return datetime.now(timezone.utc)
 
 def utc_to_local(utc):
     """
@@ -748,8 +762,19 @@ def color(string, color=None):
         elif string.strip().startswith("[*]"):
             attr.append('34')
             return '\x1b[%sm%s\x1b[0m' % (';'.join(attr), string)
+        elif string.strip().startswith("[>]"):
+            attr.append('33')
+            return '\x1b[%sm%s\x1b[0m' % (';'.join(attr), string)
         else:
             return string
+
+
+def is_stale(lastseen : datetime, delay: int, jitter: float):
+    """Convenience function for calculating staleness"""
+    interval_max = (delay + delay * jitter) + 30
+    diff = getutcnow() - lastseen
+    stale = diff.total_seconds() > interval_max
+    return stale
 
 
 def lastseen(stamp, delay, jitter):
@@ -757,15 +782,28 @@ def lastseen(stamp, delay, jitter):
     Colorize the Last Seen field based on measured delays
     """
     try:
-        delta = datetime.now() - datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S")
-        if delta.seconds > delay * (jitter + 1) * 5:
-            return color(stamp, "red")
-        elif delta.seconds > delay * (jitter + 1):
-            return color(stamp, "yellow")
+        if "T" in stamp:
+            stamp_date = datetime.strptime(stamp, "%Y-%m-%dT%H:%M:%S.%f%z").astimezone(tz=None) # Display local
         else:
-            return color(stamp, "green")
+            stamp_date = datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S.%f%z").astimezone(tz=None) # Display local
+            
+        stamp_display_local = stamp_date.strftime('%Y-%m-%d %H:%M:%S')
+        delta = getutcnow() - stamp_date
+
+        # Set min threshold for delay/jitter
+        if delay < 1:
+            delay = 1
+        if jitter < 1:
+            jitter = 1
+
+        if delta.total_seconds() > delay * (jitter + 1) * 7:
+            return color(stamp_display_local, "red")
+        elif delta.total_seconds() > delay * (jitter + 1) * 3:
+            return color(stamp_display_local, "yellow")
+        else:
+            return color(stamp_display_local, "green")
     except Exception:
-        return stamp
+        return stamp[:19].replace("T", " ")
 
 
 def unique(seq, idfun=None):
@@ -806,6 +844,9 @@ def decode_base64(data):
     From http://stackoverflow.com/questions/2941995/python-ignore-incorrect-padding-error-when-base64-decoding
     """
     missing_padding = 4 - len(data) % 4
+    if isinstance(data, str):
+        data = data.encode('UTF-8')
+
     if missing_padding:
         data += b'=' * missing_padding
 
@@ -819,9 +860,9 @@ def decode_base64(data):
 
 def encode_base64(data):
     """
-    Decode data as a base64 string.
+    Encode data as a base64 string.
     """
-    return base64.encodestring(data).strip()
+    return base64.encodebytes(data).strip()
 
 
 def complete_path(text, line, arg=False):
@@ -899,9 +940,9 @@ def obfuscate(installPath, psScript, obfuscationCommand):
     toObfuscateFile.close()
     # Obfuscate using Invoke-Obfuscation w/ PowerShell
     subprocess.call(
-        "%s -C '$ErrorActionPreference = \"SilentlyContinue\";Invoke-Obfuscation -ScriptPath %s -Command \"%s\" -Quiet | Out-File -Encoding ASCII %s'" % (
-        get_powershell_name(), toObfuscateFilename, convert_obfuscation_command(obfuscationCommand),
-        obfuscatedFilename), shell=True)
+        "%s -C '$ErrorActionPreference = \"SilentlyContinue\";Import-Module ./lib/powershell/Invoke-Obfuscation/Invoke-Obfuscation.psd1;Invoke-Obfuscation -ScriptPath %s -Command \"%s\" -Quiet | Out-File -Encoding ASCII %s'" % (
+            get_powershell_name(), toObfuscateFilename, convert_obfuscation_command(obfuscationCommand),
+            obfuscatedFilename), shell=True)
     obfuscatedFile = open(obfuscatedFilename, 'r')
     # Obfuscation writes a newline character to the end of the file, ignoring that character
     psScript = obfuscatedFile.read()[0:-1]
@@ -922,6 +963,11 @@ def obfuscate_module(moduleSource, obfuscationCommand="", forceReobfuscation=Fal
 
     moduleCode = f.read()
     f.close()
+
+    # Get the random function name generated at install and patch the stager with the proper function name
+
+    moduleCode = keyword_obfuscation(moduleCode)
+
 
     # obfuscate and write to obfuscated source path
     path = os.path.abspath('empire.py').split('empire.py')[0] + "/"
@@ -999,8 +1045,7 @@ class KThread(threading.Thread):
         self.killed = True
 
 
-def slackMessage(slackToken, slackChannel, slackText):
-    url = "https://slack.com/api/chat.postMessage"
-    data = urllib.parse.urlencode({'token': slackToken, 'channel': slackChannel, 'text': slackText})
-    req = urllib.request.Request(url, data)
+def slackMessage(slack_webhook_url, slack_text):
+    message = {'text': slack_text}
+    req = urllib.request.Request(slack_webhook_url, json.dumps(message).encode('UTF-8'))
     resp = urllib.request.urlopen(req)

@@ -14,6 +14,10 @@ class Module(object):
             # more verbose multi-line description of the module
             'Description': 'This module will return a list of group members',
 
+            'Software': '',
+
+            'Techniques': ['T1482'],
+
             # True if the module needs to run in the background
             'Background' : False,
 
@@ -120,8 +124,9 @@ output = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE)
 output2 = subprocess.Popen(["grep", "member:"],stdin=output.stdout, stdout=subprocess.PIPE,universal_newlines=True)
 output.stdout.close()
 out,err = output2.communicate()
-print ""
-print out
+print("")
+print(out)
 
 """ % (BindDN, LDAPAddress, password, groupname)
+
         return script

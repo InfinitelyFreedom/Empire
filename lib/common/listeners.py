@@ -4,33 +4,36 @@
 Listener handling functionality for Empire.
 
 """
-from __future__ import print_function
 from __future__ import absolute_import
-from builtins import filter
-from builtins import str
-from builtins import object
-import sys
+from __future__ import print_function
+
+import copy
 import fnmatch
-import imp
-from . import helpers
+import hashlib
+import importlib.util
+import json
 import os
 import pickle
-import hashlib
-import copy
-import json
+import traceback
+from builtins import filter
+from builtins import object
+from builtins import str
 
 from pydispatch import dispatcher
+
+from . import helpers
+
 
 class Listeners(object):
     """
     Listener handling class.
     """
 
-    def __init__(self, MainMenu, args):
+    def __init__(self, main_menu, args):
 
-        self.mainMenu = MainMenu
+        self.mainMenu = main_menu
         self.args = args
-        self.conn = MainMenu.conn
+        self.conn = main_menu.conn
 
         # loaded listener format:
         #     {"listenerModuleName": moduleInstance, ...}
@@ -65,16 +68,18 @@ class Listeners(object):
                 listenerName = filePath.split("/lib/listeners/")[-1][0:-3]
 
                 # instantiate the listener module and save it to the internal cache
-                self.loadedListeners[listenerName] = imp.load_source(listenerName, filePath).Listener(self.mainMenu, [])
-
+                spec = importlib.util.spec_from_file_location(listenerName, filePath)
+                mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(mod)
+                self.loadedListeners[listenerName] = mod.Listener(self.mainMenu, [])
 
     def set_listener_option(self, listenerName, option, value):
         """
         Sets an option for the given listener module or all listener module.
         """
 
-        # for name, listener in self.listeners.iteritems():
-        #     for listenerOption, optionValue in listener.options.iteritems():
+        # for name, listener in self.listeners.items():
+        #     for listenerOption, optionValue in listener.options.items():
         #         if listenerOption == option:
         #             listener.options[option]['Value'] = str(value)
 
@@ -155,7 +160,7 @@ class Listeners(object):
                     # if the staging key isn't 32 characters, assume we're md5 hashing it
                     value = str(value).strip()
                     if len(value) != 32:
-                        stagingKeyHash = hashlib.md5(value).hexdigest()
+                        stagingKeyHash = hashlib.md5(value.encode('UTF-8')).hexdigest()
                         print(helpers.color('[!] Warning: staging key not 32 characters, using hash of staging key instead: %s' % (stagingKeyHash)))
                         listenerObject.options[option]['Value'] = stagingKeyHash
                     else:
@@ -203,6 +208,9 @@ class Listeners(object):
         name = listenerObject.options['Name']['Value']
         nameBase = name
 
+        if isinstance(name, bytes):
+            name = name.decode('UTF-8')
+
         if not listenerObject.validate_options():
             return
 
@@ -221,7 +229,7 @@ class Listeners(object):
                 self.activeListeners[name] = {'moduleName': moduleName, 'options':listenerOptions}
                 pickledOptions = pickle.dumps(listenerObject.options)
                 cur = self.conn.cursor()
-                cur.execute("INSERT INTO listeners (name, module, listener_category, enabled, options) VALUES (?,?,?,?,?)", [name, moduleName, category, True, pickledOptions])
+                cur.execute("INSERT INTO listeners (name, module, listener_category, enabled, options, created_at) VALUES (?,?,?,?,?, ?)", [name, moduleName, category, True, pickledOptions, helpers.getutcnow()])
                 cur.close()
 
                 # dispatch this event
@@ -232,6 +240,10 @@ class Listeners(object):
                     'listener_options': listenerOptions
                 })
                 dispatcher.send(signal, sender="listeners/{}/{}".format(moduleName, name))
+                self.activeListeners[name]['name'] = name
+
+                if self.mainMenu.socketio:
+                    self.mainMenu.socketio.emit('listeners/new', self.get_listener_for_socket(name), broadcast=True)
             else:
                 print(helpers.color('[!] Listener failed to start!'))
 
@@ -240,6 +252,17 @@ class Listeners(object):
                 del self.activeListeners[name]
             print(helpers.color("[!] Error starting listener: %s" % (e)))
 
+    def get_listener_for_socket(self, name):
+        cur = self.conn.cursor()
+        cur.execute('''
+            SELECT id, name, module, listener_type, listener_category, options, created_at
+            FROM listeners WHERE name = ?
+            ''', [name])
+        listener = cur.fetchone()
+        [ID, name, module, listener_type, listener_category, options, created_at] = listener
+        return {'ID': ID, 'name': name, 'module': module, 'listener_type': listener_type,
+                          'listener_category': listener_category, 'options': pickle.loads(options),
+                          'created_at': created_at}
 
     def start_existing_listeners(self):
         """
@@ -569,5 +592,5 @@ class Listeners(object):
             pickled_options = pickle.dumps(options)
             cur.execute('UPDATE listeners SET options=? WHERE id=?', [pickled_options, listener_id])
         except ValueError:
-            print(helpers.color("[!] Listener %s not found" % listenerName))
+            print(helpers.color("[!] Listener %s not found" % listener_name))
         cur.close()

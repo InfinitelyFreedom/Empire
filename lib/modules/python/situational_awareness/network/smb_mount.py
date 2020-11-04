@@ -14,6 +14,10 @@ class Module(object):
             # more verbose multi-line description of the module
             'Description': 'This module will attempt mount an smb share and execute a command on it.',
 
+            'Software': '',
+
+            'Techniques': ['T1135'],
+
             # True if the module needs to run in the background
             'Background' : False,
 
@@ -132,22 +136,23 @@ cmd = \"""mkdir /Volumes/{}\""".format(mountpoint)
 subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
 
 cmd1 = \"""mount_smbfs //'{};{}:{}'@{} /Volumes/{}""\".format(domain,username,password,sharename,mountpoint)
-print subprocess.Popen(cmd1, shell=True, stdout=subprocess.PIPE).stdout.read()
-print ""
+print(subprocess.Popen(cmd1, shell=True, stdout=subprocess.PIPE).stdout.read())
+print("")
 
 cmd2 = \"""{} /Volumes/{}""\".format(command,mountpoint)
-print subprocess.Popen(cmd2, shell=True, stdout=subprocess.PIPE).stdout.read()
-print ""
+print(subprocess.Popen(cmd2, shell=True, stdout=subprocess.PIPE).stdout.read())
+print("")
 
 
 
-print ""
-print subprocess.Popen('diskutil unmount force /Volumes/{}', shell=True, stdout=subprocess.PIPE).stdout.read().format(mountpoint)
-print ""
-print "Finished"
+print("")
+print(subprocess.Popen('diskutil unmount force /Volumes/{}', shell=True, stdout=subprocess.PIPE).stdout.read().format(mountpoint))
+print("")
+print("Finished")
 
 
 
 
 """ % (username, domain, password, sharename, mountpoint, command)
+
         return script

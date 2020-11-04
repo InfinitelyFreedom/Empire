@@ -1,5 +1,5 @@
 from builtins import object
-from lib.common import helpers
+
 
 class Module(object):
 
@@ -15,6 +15,10 @@ class Module(object):
 
             # more verbose multi-line description of the module
             'Description': ('This module can be used to identify suid or guid bit set on files.'),
+
+            'Software': '',
+
+            'Techniques': ['T1426'],
 
             # True if the module needs to run in the background
             'Background' : True,
@@ -87,8 +91,9 @@ class Module(object):
 import os
 import subprocess
 cmd = "find %s -type f \( -perm -g=s -o -perm -u=s \) \-exec ls -lg \{\} \;"
-print subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
+print(subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read())
 
 """ % (path)
 
         return script
+

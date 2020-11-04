@@ -1,5 +1,5 @@
 from builtins import object
-from lib.common import helpers
+
 
 class Module(object):
 
@@ -15,6 +15,10 @@ class Module(object):
 
             # more verbose multi-line description of the module
             'Description': ('Remove an Empire Launch Daemon.'),
+
+            'Software': '',
+
+            'Techniques': ['T1055'],
 
             # True if the module needs to run in the background
             'Background' : False,
@@ -96,8 +100,9 @@ process.communicate()
 process = subprocess.Popen('rm %s', stdout=subprocess.PIPE, shell=True)
 process.communicate()
 
-print "\\n [+] %s has been removed"
-print "\\n [+] %s has been removed"
+print("\\n [+] %s has been removed")
+print("\\n [+] %s has been removed")
 """ %(plistpath,plistpath,programpath,plistpath,programpath)
 
         return script
+

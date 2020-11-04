@@ -95,7 +95,8 @@ PACKET_NAMES = {
     "TASK_SHELL": 40,
     "TASK_DOWNLOAD": 41,
     "TASK_UPLOAD": 42,
-    
+    "TASK_DIR_LIST": 43,
+
     "TASK_GETJOBS": 50,
     "TASK_STOPJOB": 51,
     
@@ -165,7 +166,7 @@ def build_task_packet(taskName, data, resultID):
     totalPacket = struct.pack('=H', 1)
     packetNum = struct.pack('=H', 1)
     resultID = struct.pack('=H', resultID)
-    length = struct.pack('=L', len(data))
+    length = struct.pack('=L', len(data.encode("UTF-8")))
     return taskType + totalPacket + packetNum + resultID + length + data.encode("UTF-8")
 
 def parse_result_packet(packet, offset=0):
@@ -274,11 +275,15 @@ def parse_routing_packet(stagingKey, data):
                 
                 if len(data) - offset < 20:
                     break
-                
+
                 RC4IV = data[0 + offset:4 + offset]
                 RC4data = data[4 + offset:20 + offset]
+
                 routingPacket = encryption.rc4(RC4IV + stagingKey.encode('UTF-8'), RC4data)
-                sessionID = routingPacket[0:8].decode('UTF-8')
+                try:
+                    sessionID = routingPacket[0:8].decode('UTF-8')
+                except:
+                    sessionID = routingPacket[0:8].decode('latin-1')
 
                 # B == 1 byte unsigned char, H == 2 byte unsigned short, L == 4 byte unsigned long
                 (language, meta, additional, length) = struct.unpack("=BBHL", routingPacket[8:])
@@ -304,7 +309,6 @@ def parse_routing_packet(stagingKey, data):
                     break
                 
                 offset += 20 + length
-            
             return results
         
         else:
@@ -359,7 +363,7 @@ def build_routing_packet(stagingKey, sessionID, language, meta="NONE", additiona
     rc4EncData = encryption.rc4(key, data)
     # return an rc4 encyption of the routing packet, append an HMAC of the packet, then the actual encrypted data
     if isinstance(encData, str) and sys.version[0] != "2":
-        encData = encData.encode('UTF-8')
+        encData = encData.encode('Latin-1')
 
     packet = RC4IV + rc4EncData + encData
     return packet

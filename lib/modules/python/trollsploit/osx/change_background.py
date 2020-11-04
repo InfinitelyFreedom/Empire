@@ -14,6 +14,10 @@ class Module(object):
             # more verbose multi-line description of the module
             'Description': 'Change the login message for the user.',
 
+            'Software': '',
+
+            'Techniques': ['T1491'],
+
             # True if the module needs to run in the background
             'Background' : False,
 
@@ -102,20 +106,21 @@ if desktop == True:
     try:
         cmd = \"""osascript -e 'tell application "Finder" to set desktop picture to "%s" as POSIX file'""\"
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
-        print "Desktop background changed!"
+        print("Desktop background changed!")
     except Exception as e:
-        print "Changing desktop background failed"
-        print e
+        print("Changing desktop background failed")
+        print(e)
 
 if login == True:
     try:
         cmd = \"""cp %s /Library/Caches/com.apple.desktop.admin.png""\"
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
-        print "Login background changed!"
+        print("Login background changed!")
     except Exception as e:
-        print "Changing login background failed"
-        print e
+        print("Changing login background failed")
+        print(e)
 
 
 """ % (desktop, login, image, image)
+
         return script

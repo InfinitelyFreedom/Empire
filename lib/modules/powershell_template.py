@@ -20,6 +20,10 @@ class Module(object):
             'Description': ('description line 1 '
                             'description line 2'),
 
+            'Software': 'SXXXX',
+
+            'Techniques': ['TXXXX', 'TXXXX'],
+
             # True if the module needs to run in the background
             'Background': False,
 
@@ -144,4 +148,6 @@ Invoke-Something"""
         if obfuscate:
             scriptEnd = helpers.obfuscate(psScript=scriptEnd, installPath=self.mainMenu.installPath, obfuscationCommand=obfuscationCommand)
         script += scriptEnd
+        script = helpers.keyword_obfuscation(script)
+
         return script

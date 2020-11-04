@@ -14,6 +14,10 @@ class Module(object):
             # more verbose multi-line description of the module
             'Description': 'This module list users found in Active Directory',
 
+            'Software': '',
+
+            'Techniques': ['T1482'],
+
             # True if the module needs to run in the background
             'Background' : False,
 
@@ -109,14 +113,15 @@ ext = BindDN.split('.')[1]
 cmd = \"""ldapsearch -x -h {} -b "dc={},dc={}" -D {} -w {} "objectclass=user" sAMAccountName""\".format(LDAPAddress, tld, ext, BindDN, password)
 output = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, bufsize=1)
 with output.stdout:
-    print ""
+    print("")
     for line in iter(output.stdout.readline, b''):
         if ("sAMAccountName:") in line:
             if '$' not in line:
                 m = re.search(r'[^sAMAccountName:].*$', line)
-                print m.group(0).lstrip()
+                print(m.group(0).lstrip())
 output.wait()
-print ""
+print("")
 
 """ % (BindDN, LDAPAddress, password)
+
         return script

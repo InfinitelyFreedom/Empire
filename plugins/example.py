@@ -8,6 +8,7 @@ import lib.common.helpers as helpers
 # module is imported (before the class is instantiated)
 print("Hello from your new plugin!")
 
+
 # this class MUST be named Plugin
 class Plugin(Plugin):
     description = "An example plugin."
@@ -20,6 +21,24 @@ class Plugin(Plugin):
         # you can store data here that will persist until the plugin
         # is unloaded (i.e. Empire closes)
         self.calledTimes = 0
+        self.commands = {'do_test': {'Description': 'an example of a plugin function',
+                                     'arg': 'the argument required and it''s description'
+                                     }
+                         }
+
+    def execute(self, dict):
+        # This is for parsing commands through the api
+
+        try:
+            # essentially switches to parse the proper command to execute
+            if dict['command'] == 'do_test':
+                results = self.do_test(dict['arguments']['arg'])
+            return results
+        except:
+            return False
+
+    def get_commands(self):
+        return self.commands
 
     def register(self, mainMenu):
         """ any modifications to the mainMenu go here - e.g.
@@ -34,3 +53,7 @@ class Plugin(Plugin):
         # you can also store data in the plugin (see onLoad)
         self.calledTimes += 1
         print("This function has been called {} times.".format(self.calledTimes))
+
+    def shutdown(self):
+        """if the plugin spawns a process provide a shutdown method for when Empire exits else leave it as pass"""
+        return
